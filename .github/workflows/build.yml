@@ -14,6 +14,7 @@ jobs:
           gradle-version: 8.9
       - run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
       - run: unzip -q YtPlaylistPlayer.zip
+      - run: sed -i 's/v0.24.2/v0.26.5/' YtPlaylistPlayer/app/build.gradle.kts
       - run: cd YtPlaylistPlayer && gradle assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
