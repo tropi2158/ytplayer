@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalSharedTransitionApi::class, ExperimentalFoundationApi::class)
+@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, ExperimentalSharedTransitionApi::class, ExperimentalFoundationApi::class)
 
 package com.example.playlist
 
@@ -27,6 +27,9 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.scaleIn
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
@@ -399,45 +402,72 @@ private fun TagPill(label: String, selected: Boolean, onClick: () -> Unit) {
     )
 }
 
-/** 비슷한 곡: 누르면 그 곡으로 라디오, 오른쪽 클릭하면 메뉴 */
+/** 비슷한 곡: 작은 썸네일 + 제목의 조용한 목록 (3줄씩, 옆으로 넘김). 누르면 라디오, 오른쪽 클릭은 메뉴 */
 @Composable
 private fun RecsRow(state: AppState, trackMenu: (Track, String, Int) -> List<ContextMenuItem>, modifier: Modifier) {
-    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
-    val rs = rememberLazyListState()
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+    val gs = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     val scope = rememberCoroutineScope()
-    Column(modifier.fillMaxWidth().padding(top = 10.dp)) {
+    val edge = 40.dp
+    Column(modifier.fillMaxWidth().padding(top = 14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("비슷한 곡", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                val cur = state.engine.current?.track
-                Text(
-                    if (cur != null) "‘${TitleClean.title(cur.title, cur.artist).take(30)}’ 와(과) 어울리는 곡" else "최근 들은 곡과 어울리는 곡",
-                    style = MaterialTheme.typography.bodySmall, color = muted, maxLines = 1
-                )
-            }
-            IconButton(onClick = { state.loadRecs(force = true) }) { Icon(Icons.Default.Refresh, "다시 추천", tint = muted) }
+            Text("비슷한 곡", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Icon(
+                Icons.Default.Refresh, "다시 추천",
+                Modifier.size(20.dp).clip(CircleShape).pointerHoverIcon(PointerIcon.Hand).clickable { state.loadRecs(force = true) },
+                tint = muted
+            )
         }
-        Spacer(Modifier.height(12.dp))
-        LazyRow(state = rs, modifier = Modifier.wheelToHorizontal(rs, scope), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+        Spacer(Modifier.height(8.dp))
+        androidx.compose.foundation.lazy.grid.LazyHorizontalGrid(
+            rows = GridCells.Fixed(3),
+            state = gs,
+            modifier = Modifier
+                .layout { m, c ->
+                    val extra = edge.roundToPx()
+                    val pl = m.measure(c.copy(minWidth = c.maxWidth + extra * 2, maxWidth = c.maxWidth + extra * 2))
+                    layout(c.maxWidth, pl.height) { pl.place(-extra, 0) }
+                }
+                .height(3 * 62.dp)
+                .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Scroll) { ev ->
+                    val d = ev.changes.firstOrNull()?.scrollDelta ?: return@onPointerEvent
+                    scope.launch { gs.scrollBy((if (kotlin.math.abs(d.x) > kotlin.math.abs(d.y)) d.x else d.y) * 60f) }
+                },
+            contentPadding = PaddingValues(horizontal = edge),
+            horizontalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
             if (state.recs.isEmpty()) {
-                items(7) {
-                    Box(Modifier.width(170.dp).aspectRatio(1f).clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = 0.06f)))
+                items(9) {
+                    Row(Modifier.width(360.dp).height(62.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(46.dp).clip(RoundedCornerShape(6.dp)).background(Color.White.copy(alpha = 0.06f)))
+                        Spacer(Modifier.width(12.dp))
+                        Box(Modifier.width(180.dp).height(12.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.06f)))
+                    }
                 }
             } else {
                 items(state.recs, key = { it.url }) { t ->
                     androidx.compose.foundation.ContextMenuArea(items = { trackMenu(t, SEARCH_PID, -1) }) {
-                        HoverPress(Modifier.width(170.dp).animateItem(), onClick = { state.startRadio(t) }) { hovered ->
-                            Column {
-                                Box {
-                                    Thumb(t.thumb, Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp)))
-                                    if (hovered) Box(
-                                        Modifier.align(Alignment.BottomEnd).padding(8.dp).size(38.dp).clip(CircleShape)
-                                            .background(Color.Black.copy(alpha = 0.6f)),
-                                        contentAlignment = Alignment.Center
-                                    ) { Icon(Icons.Default.Radio, "라디오 시작", Modifier.size(20.dp), tint = Color.White) }
+                        val src = remember { MutableInteractionSource() }
+                        val hovered by src.collectIsHoveredAsState()
+                        Row(
+                            Modifier.width(360.dp).height(62.dp).animateItem()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (hovered) Color.White.copy(alpha = 0.07f) else Color.Transparent)
+                                .hoverable(src)
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .clickable { state.startRadio(t) }
+                                .padding(horizontal = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Thumb(t.thumb, Modifier.size(46.dp).clip(RoundedCornerShape(6.dp)))
+                                if (hovered) Box(Modifier.size(46.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.PlayArrow, "라디오 시작", tint = Color.White)
                                 }
-                                Spacer(Modifier.height(8.dp))
-                                Text(t.shownTitle, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(t.shownTitle, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(t.shownArtist, style = MaterialTheme.typography.bodySmall, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
