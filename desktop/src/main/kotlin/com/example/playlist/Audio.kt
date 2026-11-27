@@ -198,6 +198,7 @@ class Engine(
     var durationMs by mutableLongStateOf(0L)
         private set
     var shuffle by mutableStateOf(prefs.getBoolean("shuffle", false))
+        private set
 
     /** 대기열이 끝까지 재생됐을 때 (비슷한 곡 이어 재생에 씀) */
     var onQueueEnd: ((QItem?) -> Unit)? = null
@@ -213,7 +214,6 @@ class Engine(
             load(0L, true)
         }
     }
-        private set
     /** 0 반복 끔, 1 전체 반복, 2 한 곡 반복 */
     var repeatMode by mutableIntStateOf(prefs.getInt("repeat", 1))
         private set
