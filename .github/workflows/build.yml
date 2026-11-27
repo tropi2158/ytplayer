@@ -1,5 +1,7 @@
 name: Build APK
 on: workflow_dispatch
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -19,3 +21,11 @@ jobs:
         with:
           name: Playlist
           path: YtPlaylistPlayer/app/build/outputs/apk/release/app-release.apk
+      # 압축 없이 APK를 바로 받을 수 있게 '최신' 릴리스에 올려요
+      - name: Publish APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp YtPlaylistPlayer/app/build/outputs/apk/release/app-release.apk Playlist.apk
+          gh release delete latest -y --cleanup-tag -R ${{ github.repository }} || true
+          gh release create latest Playlist.apk -t "Playlist 최신 버전" -n "자동 빌드 ($(date -u +%Y-%m-%d))" --latest -R ${{ github.repository }}
