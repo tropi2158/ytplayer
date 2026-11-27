@@ -31,7 +31,14 @@ object Store {
         list.forEach { p ->
             val ta = JSONArray()
             p.tracks.forEach { ta.put(trackToJson(it)) }
-            arr.put(JSONObject().put("id", p.id).put("name", p.name).put("url", p.url).put("tracks", ta).put("tag", p.tag))
+            val aa = JSONArray()
+            p.added.forEach { aa.put(trackToJson(it)) }
+            val ha = JSONArray()
+            p.hidden.forEach { ha.put(it) }
+            arr.put(
+                JSONObject().put("id", p.id).put("name", p.name).put("url", p.url).put("tracks", ta).put("tag", p.tag)
+                    .put("added", aa).put("hidden", ha)
+            )
         }
         return arr
     }
@@ -43,7 +50,9 @@ object Store {
             name = o.optString("name").ifBlank { "플레이리스트" },
             url = o.optString("url"),
             tracks = parseTracks(o.optJSONArray("tracks") ?: JSONArray()),
-            tag = o.optString("tag")
+            tag = o.optString("tag"),
+            added = parseTracks(o.optJSONArray("added") ?: JSONArray()),
+            hidden = (o.optJSONArray("hidden") ?: JSONArray()).let { h -> (0 until h.length()).map { h.optString(it) }.filter { it.isNotBlank() }.toSet() }
         )
     }
 

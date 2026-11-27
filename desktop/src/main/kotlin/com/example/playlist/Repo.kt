@@ -23,10 +23,15 @@ data class Playlist(
     val name: String,
     val url: String, // 비어 있으면 앱 안에서 만든 플레이리스트
     val tracks: List<Track>,
-    val tag: String = ""
+    val tag: String = "",
+    /** 유튜브에서 가져온 목록에 내가 직접 넣은 곡 (새로고침해도 유지) */
+    val added: List<Track> = emptyList(),
+    /** 유튜브에서 가져온 목록에서 내가 뺀 곡 */
+    val hidden: Set<String> = emptySet()
 )
 
 const val SEARCH_PID = "__search__"
+const val RADIO_PID = "__radio__"
 
 /** 텍스트에서 링크 찾기 (플레이리스트 링크 우선) */
 fun extractUrl(text: String): String? {
@@ -70,6 +75,22 @@ object YtRepo {
         val info = SearchInfo.getInfo(svc, handler)
         return info.relatedItems.filterIsInstance<StreamInfoItem>()
             .filter { it.url.isNotBlank() }
+            .map {
+                Track(
+                    url = it.url,
+                    title = it.name,
+                    artist = it.uploaderName ?: "",
+                    thumb = it.thumbnails.lastOrNull()?.url,
+                    durationSec = it.duration
+                )
+            }
+    }
+
+    /** 이 곡과 비슷한 곡 (유튜브 추천) */
+    fun related(videoUrl: String): List<Track> {
+        val info = StreamInfo.getInfo(ServiceList.YouTube, videoUrl)
+        return info.relatedItems.filterIsInstance<StreamInfoItem>()
+            .filter { it.url.isNotBlank() && it.duration in 60..900 }
             .map {
                 Track(
                     url = it.url,

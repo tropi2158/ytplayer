@@ -227,6 +227,7 @@ class AppState {
             val cols = withContext(Dispatchers.IO) { runCatching { paletteOf(url) }.getOrNull() }
             if (colorFor == url && cols != null) {
                 artColors = cols
+                AlbumAccent.update(cols)
                 artColor = cols.firstOrNull()
             }
         }
@@ -367,7 +368,7 @@ class AppState {
         scope.launch {
             try {
                 val (_, list) = withContext(Dispatchers.IO) { YtRepo.loadPlaylist(p.url) }
-                updatePlaylists(playlists.map { if (it.id == id) it.copy(tracks = list) else it })
+                updatePlaylists(playlists.map { if (it.id == id) it.copy(tracks = merged(it, list)) else it })
                 if (!quiet) toast("목록을 새로 불러왔어요")
             } catch (e: Exception) {
                 if (!(quiet && p.tracks.isNotEmpty())) showError(friendlyError(e)) { refreshPlaylist(id) }
@@ -388,7 +389,7 @@ class AppState {
                     msgs += "'${p.name}' ${fresh.size}곡"
                     added += fresh.map { it.url }
                 }
-                updatePlaylists(playlists.map { if (it.id == p.id) it.copy(tracks = list) else it })
+                updatePlaylists(playlists.map { if (it.id == p.id) it.copy(tracks = merged(it, list)) else it })
             } catch (e: Exception) {
             }
         }
@@ -444,19 +445,28 @@ class AppState {
             toast("'${target.name}'에 이미 있는 곡이에요")
             return
         }
-        updatePlaylists(playlists.map { if (it.id == targetId) it.copy(tracks = it.tracks + t) else it })
+        updatePlaylists(playlists.map {
+            if (it.id != targetId) it
+            else if (it.url.isBlank()) it.copy(tracks = it.tracks + t)
+            else it.copy(tracks = it.tracks + t, added = (it.added + t).distinctBy { a -> a.url }, hidden = it.hidden - t.url)
+        })
         toast("'${target.name}'에 추가했어요")
     }
 
     fun removeFromPlaylist(pid: String, index: Int) {
         updatePlaylists(playlists.map {
-            if (it.id == pid && index in it.tracks.indices) it.copy(tracks = it.tracks.filterIndexed { i, _ -> i != index })
-            else it
+            if (it.id == pid && index in it.tracks.indices) {
+                val gone = it.tracks[index].url
+                val rest = it.tracks.filterIndexed { i, _ -> i != index }
+                if (it.url.isBlank()) it.copy(tracks = rest)
+                else it.copy(tracks = rest, added = it.added.filter { a -> a.url != gone }, hidden = it.hidden + gone)
+            } else it
         })
     }
 
     // ================= 재생 =================
     fun playIn(pid: String, index: Int) {
+        radioMode = false
         val pl = playlist(pid) ?: return
         if (index !in pl.tracks.indices) return
         engine.setQueue(pl.tracks.map { QItem(pl.id, it) }, index)
@@ -475,6 +485,7 @@ class AppState {
     }
 
     fun playList(list: List<Track>, pid: String, index: Int) {
+        radioMode = false
         engine.setQueue(list.map { QItem(pid, it) }, index)
     }
 
@@ -499,6 +510,7 @@ class AppState {
     }
 
     fun playMix(ids: Collection<String>) {
+        radioMode = false
         val items = playlists.filter { it.id in ids }
             .flatMap { p -> p.tracks.map { QItem(p.id, it) } }
             .distinctBy { it.track.url }
@@ -800,6 +812,87 @@ class AppState {
     }
     fun finishOnboarding() { onboarded = true; putBool("onboarded_pc", true) }
     fun showOnboardingAgain() { onboarded = false; putBool("onboarded_pc", false) }
+
+    // ================= 유튜브 목록 + 내가 넣고 뺀 곡 =================
+    /** 유튜브 원본 + 내가 넣은 곡 - 내가 뺀 곡 */
+    private fun merged(p: Playlist, list: List<Track>): List<Track> {
+        val urls = list.map { it.url }.toSet()
+        return list.filter { it.url !in p.hidden } + p.added.filter { it.url !in urls }
+    }
+
+    fun duplicateCount(id: String): Int {
+        val p = playlist(id) ?: return 0
+        return p.tracks.size - p.tracks.distinctBy { it.url }.size
+    }
+
+    fun removeDuplicates(id: String) {
+        val n = duplicateCount(id)
+        if (n == 0) { toast("중복된 곡이 없어요"); return }
+        updatePlaylists(playlists.map { if (it.id == id) it.copy(tracks = it.tracks.distinctBy { t -> t.url }) else it })
+        toast("중복된 곡 ${n}개를 정리했어요")
+    }
+
+    // ================= 비슷한 곡: 추천 / 라디오 / 이어 재생 =================
+    var autoplayRelated by mutableStateOf(prefs.getBoolean("autoplay_related", true))
+        private set
+    var cleanTitles by mutableStateOf(prefs.getBoolean("clean_titles", true).also { TitleClean.on = it })
+        private set
+    fun updateAutoplayRelated(v: Boolean) { autoplayRelated = v; putBool("autoplay_related", v) }
+    fun updateCleanTitles(v: Boolean) { cleanTitles = v; TitleClean.on = v; putBool("clean_titles", v) }
+
+    var recs by mutableStateOf<List<Track>>(emptyList())
+        private set
+    var recsLoading by mutableStateOf(false)
+        private set
+    private var recsFor = ""
+
+    fun loadRecs(force: Boolean = false) {
+        val seed = engine.current?.track?.url ?: recent.firstOrNull()?.track?.url ?: return
+        if (!online || recsLoading) return
+        if (!force && seed == recsFor && recs.isNotEmpty()) return
+        recsFor = seed
+        recsLoading = true
+        scope.launch {
+            val list = withContext(Dispatchers.IO) { runCatching { YtRepo.related(seed) }.getOrNull() }
+            if (list != null) {
+                val mine = playlists.flatMap { it.tracks }.map { it.url }.toSet()
+                recs = (list.filter { it.url !in mine } + list.filter { it.url in mine })
+                    .distinctBy { it.url }.filter { it.url != seed }.take(16)
+            }
+            recsLoading = false
+        }
+    }
+
+    private var radioMode = false
+    private var extending = false
+
+    fun startRadio(t: Track) {
+        radioMode = true
+        engine.setShuffleMode(false)
+        engine.setQueue(listOf(QItem(RADIO_PID, t)), 0)
+        toast("'${TitleClean.title(t.title, t.artist).take(24)}' 라디오를 시작해요")
+    }
+
+    /** 대기열이 끝나면 마지막 곡과 비슷한 곡을 찾아 이어서 재생 */
+    private fun extendQueue(last: QItem?) {
+        if (last == null || extending) return
+        if (!autoplayRelated && !radioMode) return
+        extending = true
+        scope.launch {
+            val have = engine.queue.map { it.track.url }.toSet()
+            val more = withContext(Dispatchers.IO) { runCatching { YtRepo.related(last.track.url) }.getOrNull() }
+                ?.filter { it.url !in have }?.take(12).orEmpty()
+            if (more.isNotEmpty()) {
+                engine.appendItems(more.map { QItem(RADIO_PID, it) }, playFirst = true)
+                toast("비슷한 곡 ${more.size}개를 이어서 틀어요")
+            }
+            extending = false
+        }
+    }
+
+    init {
+        engine.onQueueEnd = { extendQueue(it) }
+    }
 
     fun shutdown() {
         saveResume()

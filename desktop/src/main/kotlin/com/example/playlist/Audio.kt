@@ -198,6 +198,21 @@ class Engine(
     var durationMs by mutableLongStateOf(0L)
         private set
     var shuffle by mutableStateOf(prefs.getBoolean("shuffle", false))
+
+    /** 대기열이 끝까지 재생됐을 때 (비슷한 곡 이어 재생에 씀) */
+    var onQueueEnd: ((QItem?) -> Unit)? = null
+
+    /** 대기열 맨 뒤에 여러 곡 붙이기. playFirst면 붙인 첫 곡부터 재생 */
+    fun appendItems(items: List<QItem>, playFirst: Boolean) {
+        if (items.isEmpty()) return
+        val start = queue.size
+        queue = queue + items
+        order = order + items.indices.map { start + it }
+        if (playFirst) {
+            orderPos = order.indexOf(start)
+            load(0L, true)
+        }
+    }
         private set
     /** 0 반복 끔, 1 전체 반복, 2 한 곡 반복 */
     var repeatMode by mutableIntStateOf(prefs.getInt("repeat", 1))
@@ -556,6 +571,7 @@ class Engine(
         } else {
             isPlaying = false
             seek(0L)
+            onQueueEnd?.invoke(item)
         }
     }
 

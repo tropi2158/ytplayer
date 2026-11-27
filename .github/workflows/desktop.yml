@@ -1,5 +1,7 @@
 name: Build PC (Windows exe)
 on: workflow_dispatch
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: windows-latest
@@ -32,3 +34,15 @@ jobs:
           name: Playlist-PC-installer
           path: desktop/build/compose/binaries/main/exe/*.exe
           if-no-files-found: warn
+      # 압축 해제 없이 바로 받을 수 있게 'PC 최신' 릴리스에 올려요
+      - name: Publish to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp build/Playlist-portable.zip Playlist-PC-portable.zip
+          FILES="Playlist-PC-portable.zip"
+          EXE=$(ls build/compose/binaries/main/exe/*.exe 2>/dev/null | head -n 1 || true)
+          if [ -n "$EXE" ]; then cp "$EXE" Playlist-PC-setup.exe; FILES="$FILES Playlist-PC-setup.exe"; fi
+          gh release delete pc-latest -y --cleanup-tag -R ${{ github.repository }} || true
+          gh release create pc-latest $FILES -t "Playlist PC 최신 버전" -n "Windows용 자동 빌드 ($(date -u +%Y-%m-%d)). 설치 파일(setup.exe) 또는 압축 없이 쓰는 portable" --latest=false -R ${{ github.repository }}

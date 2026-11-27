@@ -157,8 +157,8 @@ private fun ColumnScope.QueueBody(state: AppState) {
                     Thumb(item.track.thumb, Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)))
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(item.track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (isCur) FontWeight.SemiBold else FontWeight.Normal)
-                        Text(item.track.artist, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(item.track.shownTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (isCur) FontWeight.SemiBold else FontWeight.Normal)
+                        Text(item.track.shownArtist, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if (!e.shuffle) {
                         IconButton(onClick = { e.move(qi, qi - 1) }, enabled = qi > 0) { Icon(Icons.Default.KeyboardArrowUp, "위로") }
@@ -348,7 +348,8 @@ private fun ColumnScope.SettingsBody(state: AppState) {
             }
         }
         SwitchRow("앨범 아트 색 따라가기", "재생 중인 곡의 커버 색으로 배경이 물들어요 (흑백 테마는 배경만)", state.useArtColor, state::updateArtColor)
-        SwitchRow("리퀴드 글래스", "반투명 유리 질감과 움직이는 색 안개 배경", state.glass, state::updateGlass)
+        SwitchRow("앨범 아트 배경", "지금 곡의 썸네일을 흐리게 깔아요 (끄면 단색 배경)", state.glass, state::updateGlass)
+        SwitchRow("곡 제목 깔끔하게", "[MV], (Official Video), | 뒤 설명 같은 군더더기를 떼고 보여줘요", state.cleanTitles, state::updateCleanTitles)
         Text("글자 크기", style = MaterialTheme.typography.titleSmall)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(0.9f to "작게", 1f to "보통", 1.15f to "크게", 1.3f to "아주 크게").forEach { (v, l) ->
@@ -360,6 +361,7 @@ private fun ColumnScope.SettingsBody(state: AppState) {
         SectionTitle("재생")
         SwitchRow("이어듣기", "앱을 다시 열면 마지막 곡과 위치부터", state.resumeEnabled, state::updateResume)
         SwitchRow("다음 곡 미리 받기", "곡 사이 끊김 없이 넘어가요", state.prefetch, state::updatePrefetch)
+        SwitchRow("비슷한 곡 이어 재생", "대기열이 끝나면 유튜브 추천에서 비슷한 곡을 찾아 계속 틀어요 (반복이 꺼져 있을 때)", state.autoplayRelated, state::updateAutoplayRelated)
         SwitchRow("음악 아닌 구간 건너뛰기", "뮤직비디오의 인트로·아웃트로를 SponsorBlock 데이터로 넘겨요", state.skipOfftopic, state::updateSkipOfftopic)
         Text("곡 전환 페이드", style = MaterialTheme.typography.titleSmall)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

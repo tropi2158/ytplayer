@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
@@ -206,7 +207,7 @@ fun AppTheme(state: AppState, content: @Composable () -> Unit) {
         LocalGlass provides state.glass,
         LocalDensity provides Density(base.density, base.fontScale * state.fontScale)
     ) {
-        MaterialTheme(colorScheme = scheme, content = content)
+        MaterialTheme(colorScheme = scheme, typography = PretendardTypography, content = content)
     }
 }
 
@@ -236,11 +237,12 @@ fun GlassSurface(
         !glass && tint != null -> cs.primaryContainer to cs.primaryContainer
         !glass && strong -> cs.surface to cs.surface
         !glass -> cs.surfaceVariant to cs.surfaceVariant
-        tint != null -> tint.copy(alpha = 0.40f + lift) to tint.copy(alpha = 0.22f + lift)
-        strong && dark -> cs.surface.copy(alpha = 0.78f) to cs.surface.copy(alpha = 0.66f)
-        strong -> Color.White.copy(alpha = 0.86f) to Color.White.copy(alpha = 0.74f)
-        dark -> Color.White.copy(alpha = 0.15f + lift) to Color.White.copy(alpha = 0.07f + lift)
-        else -> Color.White.copy(alpha = 0.72f + lift) to Color.White.copy(alpha = 0.48f + lift)
+        // 납작하고 옅은 판 (겹겹이 보이지 않게)
+        tint != null -> tint.copy(alpha = 0.22f + lift) to tint.copy(alpha = 0.22f + lift)
+        strong && dark -> Color(0xFF161618).copy(alpha = 0.92f) to Color(0xFF161618).copy(alpha = 0.92f)
+        strong -> Color.White.copy(alpha = 0.92f) to Color.White.copy(alpha = 0.92f)
+        dark -> Color.White.copy(alpha = 0.07f + lift) to Color.White.copy(alpha = 0.07f + lift)
+        else -> Color.Black.copy(alpha = 0.05f + lift) to Color.Black.copy(alpha = 0.05f + lift)
     }
     val aTop = animateColorAsState(top, tween(220), label = "gt")
     val aBot = animateColorAsState(bot, tween(220), label = "gb")
@@ -266,7 +268,7 @@ fun GlassSurface(
             }
             .clip(shape)
             .drawBehind { drawRect(Brush.verticalGradient(listOf(aTop.value, aBot.value))) }
-            .then(if (glass) Modifier.border(0.7.dp, border, shape) else Modifier)
+            .then(if (glass && strong) Modifier.border(0.7.dp, Color.White.copy(alpha = if (dark) 0.06f else 0.3f), shape) else Modifier)
             .then(
                 if (clickable) Modifier
                     .pointerHoverIcon(PointerIcon.Hand)
@@ -285,7 +287,11 @@ fun GlassSurface(
 
 /** 몽환적인 커버 색 그라데이션 배경 (그리기 단계에서만 움직임) */
 @Composable
-fun GlassBackground(colors: List<Color>, modifier: Modifier = Modifier, deep: Boolean = false) {
+fun GlassBackground(colors: List<Color>, modifier: Modifier = Modifier, deep: Boolean = false, art: String? = null) {
+    if (LocalGlass.current && art != null) {
+        ArtBackground(art, modifier, deep)
+        return
+    }
     val cs = MaterialTheme.colorScheme
     val glass = LocalGlass.current
     val dark = cs.background.luminance() < 0.5f
@@ -455,7 +461,7 @@ fun TrackRow(
     val primary = MaterialTheme.colorScheme.primary
     val bg by animateColorAsState(
         when {
-            selected -> primary.copy(alpha = 0.22f)
+            selected -> Color.White.copy(alpha = 0.08f)
             hovered -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)
             else -> Color.Transparent
         },
@@ -475,7 +481,7 @@ fun TrackRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(Modifier.width(34.dp), contentAlignment = Alignment.Center) {
-                if (playing) Icon(Icons.Default.GraphicEq, null, Modifier.size(18.dp), tint = primary)
+                if (selected) NowPlayingBars(playing, AlbumAccent.color, Modifier.size(16.dp))
                 else Text(
                     "$number",
                     style = MaterialTheme.typography.labelMedium,
@@ -484,14 +490,14 @@ fun TrackRow(
             }
             AsyncImage(
                 model = t.thumb, contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = Modifier.size(44.dp).clip(RoundedCornerShape(10.dp))
+                modifier = Modifier.size(44.dp).clip(RoundedCornerShape(6.dp))
             )
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    t.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    t.shownTitle, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (selected) primary else MaterialTheme.colorScheme.onSurface
+                    color = if (selected) AlbumAccent.color else MaterialTheme.colorScheme.onSurface
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (isNew) {
@@ -503,7 +509,7 @@ fun TrackRow(
                         Spacer(Modifier.width(4.dp))
                     }
                     Text(
-                        t.artist, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        t.shownArtist, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -538,7 +544,7 @@ fun ThinProgress(state: AppState, modifier: Modifier) {
     val e = state.engine
     val clock = rememberFrameClock(e.isPlaying)
     val trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-    val barColor = MaterialTheme.colorScheme.primary
+    val barColor = AlbumAccent.color
     Box(
         modifier.drawBehind {
             clock.value
@@ -554,4 +560,148 @@ fun ThinProgress(state: AppState, modifier: Modifier) {
 @Composable
 fun Thumb(url: String?, modifier: Modifier) {
     AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier.alpha(1f))
+}
+
+
+// ======================= 글꼴: Pretendard (SIL OFL 1.1, resources/Pretendard-LICENSE.txt) =======================
+
+val Pretendard = androidx.compose.ui.text.font.FontFamily(
+    androidx.compose.ui.text.platform.Font("font/pretendard_regular.otf", FontWeight.Normal),
+    androidx.compose.ui.text.platform.Font("font/pretendard_medium.otf", FontWeight.Medium),
+    androidx.compose.ui.text.platform.Font("font/pretendard_semibold.otf", FontWeight.SemiBold),
+    androidx.compose.ui.text.platform.Font("font/pretendard_bold.otf", FontWeight.Bold),
+    androidx.compose.ui.text.platform.Font("font/pretendard_extrabold.otf", FontWeight.ExtraBold)
+)
+
+val PretendardTypography: Typography = Typography().let { t ->
+    fun androidx.compose.ui.text.TextStyle.p() = copy(fontFamily = Pretendard, letterSpacing = androidx.compose.ui.unit.TextUnit.Unspecified)
+    fun androidx.compose.ui.text.TextStyle.tight(em: Float) = copy(fontFamily = Pretendard, letterSpacing = androidx.compose.ui.unit.TextUnit(em, androidx.compose.ui.unit.TextUnitType.Em))
+    t.copy(
+        displayLarge = t.displayLarge.tight(-0.03f), displayMedium = t.displayMedium.tight(-0.03f), displaySmall = t.displaySmall.tight(-0.03f),
+        headlineLarge = t.headlineLarge.tight(-0.025f), headlineMedium = t.headlineMedium.tight(-0.025f), headlineSmall = t.headlineSmall.tight(-0.02f),
+        titleLarge = t.titleLarge.tight(-0.015f), titleMedium = t.titleMedium.tight(-0.01f), titleSmall = t.titleSmall.p(),
+        bodyLarge = t.bodyLarge.p(), bodyMedium = t.bodyMedium.p(), bodySmall = t.bodySmall.p(),
+        labelLarge = t.labelLarge.p(), labelMedium = t.labelMedium.p(), labelSmall = t.labelSmall.p()
+    )
+}
+
+// ======================= 앨범 포인트 색 =======================
+
+/** 지금 곡 앨범에서 뽑은 포인트 색 (재생 바, 켜진 셔플/반복, 하트, 지금 곡 표시) */
+object AlbumAccent {
+    var color by mutableStateOf(Color.White)
+        private set
+
+    fun update(cols: List<Color>) {
+        var best: FloatArray? = null
+        for (c in cols) {
+            val f = rgbToHsv(c)
+            if (best == null || f[1] * f[2] > best[1] * best[2]) best = f
+        }
+        val b = best
+        color = if (b == null || b[1] < 0.18f || b[2] < 0.15f) Color.White
+        else Color(java.awt.Color.HSBtoRGB(b[0] / 360f, b[1].coerceIn(0.35f, 0.62f), 1f))
+    }
+
+    private fun rgbToHsv(c: Color): FloatArray {
+        val hsb = java.awt.Color.RGBtoHSB((c.red * 255).toInt(), (c.green * 255).toInt(), (c.blue * 255).toInt(), null)
+        return floatArrayOf(hsb[0] * 360f, hsb[1], hsb[2])
+    }
+}
+
+// ======================= 앨범 아트 배경 =======================
+
+/** 지금 곡 썸네일을 크게 흐리고 어둡게 깐 배경 (천천히 떠다님) */
+@Composable
+private fun ArtBackground(art: String, modifier: Modifier, deep: Boolean) {
+    val cs = MaterialTheme.colorScheme
+    val dark = cs.background.luminance() < 0.5f
+    val base = if (dark) Color(0xFF050507) else cs.background
+    val drift = rememberInfiniteTransition(label = "artDrift")
+    val phase = drift.animateFloat(
+        0f, (2.0 * PI).toFloat(),
+        infiniteRepeatable(tween(9_000, easing = LinearEasing)), label = "artPhase"
+    )
+    val ctx = coil3.compose.LocalPlatformContext.current
+    Box(modifier.fillMaxSize().drawBehind { drawRect(base) }) {
+        androidx.compose.animation.Crossfade(targetState = art, animationSpec = tween(900), label = "artBg") { url ->
+            val req = remember(url) { coil3.request.ImageRequest.Builder(ctx).data(url).size(160).build() }
+            AsyncImage(
+                model = req, contentDescription = null, contentScale = ContentScale.Crop,
+                colorFilter = androidx.compose.ui.graphics.ColorFilter.colorMatrix(
+                    androidx.compose.ui.graphics.ColorMatrix().apply { setToSaturation(0.85f) }
+                ),
+                modifier = Modifier.fillMaxSize()
+                    .blur(60.dp, androidx.compose.ui.draw.BlurredEdgeTreatment.Rectangle)
+                    .graphicsLayer {
+                        val ph = phase.value
+                        val sc = 1.3f + 0.04f * sin(ph)
+                        scaleX = sc
+                        scaleY = sc
+                        translationX = size.width * 0.03f * cos(ph)
+                        translationY = size.height * 0.02f * sin(ph * 2f)
+                    }
+            )
+        }
+        Box(
+            Modifier.fillMaxSize().drawBehind {
+                if (dark) drawRect(
+                    Brush.verticalGradient(
+                        0f to Color.Black.copy(alpha = if (deep) 0.52f else 0.42f),
+                        0.45f to Color.Black.copy(alpha = if (deep) 0.62f else 0.58f),
+                        1f to Color.Black.copy(alpha = if (deep) 0.85f else 0.86f)
+                    )
+                ) else drawRect(Brush.verticalGradient(0f to base.copy(alpha = 0.3f), 1f to base.copy(alpha = 0.65f)))
+            }
+        )
+    }
+}
+
+// ======================= 재생 중 막대 =======================
+
+@Composable
+fun NowPlayingBars(playing: Boolean, color: Color, modifier: Modifier = Modifier) {
+    val tr = rememberInfiniteTransition(label = "bars")
+    val ph = tr.animateFloat(0f, (2 * PI).toFloat(), infiniteRepeatable(tween(1100, easing = LinearEasing)), label = "barsPhase")
+    val amp by animateFloatAsState(if (playing) 1f else 0f, tween(300), label = "barsAmp")
+    androidx.compose.foundation.Canvas(modifier) {
+        val n = 4
+        val gap = size.width * 0.12f
+        val bw = (size.width - gap * (n - 1)) / n
+        val speeds = floatArrayOf(1f, 2f, 1f, 3f)
+        val offs = floatArrayOf(0f, 1.3f, 2.6f, 0.7f)
+        for (i in 0 until n) {
+            val wave = 0.5f + 0.5f * sin(ph.value * speeds[i] + offs[i])
+            val h = size.height * (0.22f + amp * 0.78f * wave)
+            drawRoundRect(color, topLeft = Offset(i * (bw + gap), size.height - h), size = Size(bw, h), cornerRadius = CornerRadius(bw / 2f))
+        }
+    }
+}
+
+// ======================= 아트 비율 =======================
+
+/** 썸네일이 '정사각형 아트 + 양옆 단색 띠'면 1:1, 아니면 원래 비율 */
+fun artRatioOf(b: org.jetbrains.skia.Bitmap): Float {
+    val w = b.width
+    val h = b.height
+    if (w <= 0 || h <= 0) return 1f
+    val r = w.toFloat() / h
+    if (r < 1.2f) return 1f
+    val m = (w - h) / 2
+    if (m < 8) return 1f
+    fun bandFlat(x0: Int, x1: Int): Boolean {
+        val px = ArrayList<Int>()
+        for (yi in 1..7) for (xi in 0..2) {
+            val x = (x0 + (x1 - x0) * (xi + 0.5f) / 3f).toInt().coerceIn(0, w - 1)
+            val y = (h * yi / 8f).toInt().coerceIn(0, h - 1)
+            px += b.getColor(x, y)
+        }
+        val sr = px.map { it shr 16 and 0xFF }.average()
+        val sg = px.map { it shr 8 and 0xFF }.average()
+        val sb = px.map { it and 0xFF }.average()
+        val dev = px.maxOf { c -> maxOf(abs((c shr 16 and 0xFF) - sr), abs((c shr 8 and 0xFF) - sg), abs((c and 0xFF) - sb)) }
+        return dev < 26.0
+    }
+    val inset = (m * 0.15f).toInt()
+    return if (bandFlat(inset, m - inset) && bandFlat(w - m + inset, w - inset)) 1f else r
 }

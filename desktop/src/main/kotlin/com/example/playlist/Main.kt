@@ -163,8 +163,11 @@ fun AppScreen(state: AppState) {
             add(ContextMenuItem("다음에 재생") { state.playNext(t, pid) })
             add(ContextMenuItem("대기열에 추가") { state.addToQueue(t, pid) })
             add(ContextMenuItem(if (state.isFavorite(t.url)) "좋아요 취소" else "좋아요") { state.toggleFavorite(t) })
-            state.playlists.filter { it.url.isBlank() && it.id != FAV_ID && it.id != pid }.forEach { p ->
-                add(ContextMenuItem("'${p.name}'에 담기") { state.copyTo(t, p.id) })
+            add(ContextMenuItem("이 곡으로 라디오 시작") { state.startRadio(t) })
+            // 직접 만든 목록 + 유튜브에서 가져온 목록 모두에 담을 수 있어요 (유튜브 원본은 그대로)
+            state.playlists.filter { it.id != FAV_ID && it.id != pid }.forEach { p ->
+                val has = p.tracks.any { it.url == t.url }
+                add(ContextMenuItem("'${p.name}'에 담기" + if (has) " (이미 있음)" else "") { state.copyTo(t, p.id) })
             }
             add(ContextMenuItem("새 플레이리스트에 담기…") { newWithTrack = t })
             if (t.artist.isNotBlank()) add(ContextMenuItem("이 가수 다른 곡 찾기") { state.findArtist(t.artist) })
@@ -173,7 +176,7 @@ fun AppScreen(state: AppState) {
                 java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection(t.url), null)
                 state.toast("링크를 복사했어요")
             })
-            if (owner != null && owner.url.isBlank() && index >= 0) {
+            if (owner != null && index >= 0) {
                 add(ContextMenuItem("이 목록에서 빼기") { if (pid == FAV_ID) state.toggleFavorite(t) else state.removeFromPlaylist(pid, index) })
             }
         }
@@ -187,6 +190,7 @@ fun AppScreen(state: AppState) {
                 add(ContextMenuItem("셔플 재생") { state.shuffleIn(pid) })
             }
             if (p.url.isNotBlank()) add(ContextMenuItem("새로고침") { state.refreshPlaylist(pid) })
+            if (state.duplicateCount(pid) > 0) add(ContextMenuItem("중복 곡 정리 (${state.duplicateCount(pid)}곡)") { state.removeDuplicates(pid) })
             if (p.tracks.isNotEmpty()) {
                 if (state.offlineProgress.containsKey(pid)) add(ContextMenuItem("오프라인 저장 멈추기") { state.cancelOffline(pid) })
                 else {
@@ -230,7 +234,7 @@ fun AppScreen(state: AppState) {
         LaunchedEffect(state.collapseRequest) { if (state.collapseRequest > 0) closePlayer() }
         LaunchedEffect(Unit) { snapshotFlow { expand.targetValue > 0.5f }.collect { state.expanded = it } }
 
-        GlassBackground(state.bgColors)
+        GlassBackground(state.bgColors, art = state.engine.current?.track?.thumb)
 
         Column(
             Modifier.fillMaxSize().graphicsLayer {
@@ -258,7 +262,8 @@ fun AppScreen(state: AppState) {
                                 state, this@SharedTransitionLayout, this@AnimatedContent,
                                 onPlaylistMenu = playlistMenu,
                                 onAdd = { showAdd = true },
-                                onMix = { showMix = true }
+                                onMix = { showMix = true },
+                                trackMenu = trackMenu
                             )
                             if (id != null) LaunchedEffect(id) { state.openId = null }
                         } else {

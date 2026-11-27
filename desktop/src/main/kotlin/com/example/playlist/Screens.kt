@@ -19,6 +19,17 @@ import androidx.compose.foundation.ContextMenuItem
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.scaleIn
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -94,9 +105,12 @@ fun PlaylistCover(p: Playlist, modifier: Modifier, corner: Dp = 18.dp) {
     Box(modifier.clip(shape).background(cs.surfaceVariant)) {
         when {
             p.id == FAV_ID -> Box(
-                Modifier.fillMaxSize().background(Brush.linearGradient(listOf(cs.primary, cs.primary.copy(alpha = 0.45f), cs.secondary))),
+                Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFFFF6B8B), Color(0xFFE0457B), Color(0xFF7A3CF0)))),
                 contentAlignment = Alignment.Center
-            ) { Icon(Icons.Default.Favorite, null, Modifier.fillMaxSize(0.4f), tint = Color.White) }
+            ) {
+                Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.22f), Color.Transparent))))
+                Icon(Icons.Default.Favorite, null, Modifier.fillMaxSize(0.34f), tint = Color.White)
+            }
 
             p.tracks.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Icon(Icons.Default.LibraryMusic, null, Modifier.fillMaxSize(0.35f), tint = cs.onSurfaceVariant)
@@ -188,162 +202,87 @@ fun HomeScreen(
     a: AnimatedVisibilityScope?,
     onPlaylistMenu: (String) -> List<ContextMenuItem>,
     onAdd: () -> Unit,
-    onMix: () -> Unit
+    onMix: () -> Unit,
+    trackMenu: (Track, String, Int) -> List<ContextMenuItem> = { _, _, _ -> emptyList() }
 ) {
     var tagFilter by remember { mutableStateOf("") }
-    val pick = remember(state.playlists) { state.todayPick() }
     val tags = state.tags
     LaunchedEffect(tags) { if (tagFilter.isNotEmpty() && tagFilter !in tags) tagFilter = "" }
+    LaunchedEffect(state.playingUrl, state.online) {
+        delay(1200)
+        state.loadRecs()
+    }
     val shown = if (tagFilter.isEmpty()) state.playlists else state.playlists.filter { it.tag == tagFilter }
-    val scope = rememberCoroutineScope()
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+    var menu by remember { mutableStateOf(false) }
+    val gridState = rememberLazyGridState()
 
-    Column(Modifier.fillMaxSize()) {
-        // ----- 머리글 -----
-        Row(Modifier.fillMaxWidth().padding(start = 28.dp, end = 16.dp, top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Playlist", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
-            if (!state.online) {
-                GlassSurface(shape = CircleShape, tint = MaterialTheme.colorScheme.error) {
-                    Row(Modifier.padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.CloudOff, null, Modifier.size(14.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("오프라인", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-                Spacer(Modifier.width(8.dp))
-            }
-            IconButton(onClick = { state.panel = Panel.SEARCH }) { Icon(Icons.Default.Search, "유튜브에서 찾기 (Ctrl+F)") }
-            IconButton(onClick = { state.panel = Panel.STATS }) { Icon(Icons.Default.BarChart, "청취 통계") }
-            IconButton(onClick = { state.panel = Panel.SETTINGS }) { Icon(Icons.Default.Settings, "설정") }
-        }
-
+    Box(Modifier.fillMaxSize()) {
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(176.dp),
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            columns = GridCells.Adaptive(200.dp),
+            state = gridState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 40.dp, end = 40.dp, top = 22.dp, bottom = 28.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+            verticalArrangement = Arrangement.spacedBy(26.dp)
         ) {
-            // ----- 가운데 메시지 + 오늘의 추천 -----
-            item(span = { GridItemSpan(maxLineSpan) }, key = "__msg__") {
-                Column(
-                    Modifier.fillMaxWidth().heightIn(min = 260.dp).padding(vertical = 24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    RandomMessage(Modifier.widthIn(max = 640.dp).riseIn(a, 40, 3))
-                    if (pick != null) {
-                        Spacer(Modifier.height(22.dp))
-                        GlassSurface(
-                            modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth().riseIn(a, 120, 2),
-                            shape = RoundedCornerShape(22.dp), strong = true,
-                            onClick = { state.playTrackIn(pick.pid, pick.track.url) }
-                        ) {
-                            Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Thumb(pick.track.thumb, Modifier.size(56.dp).clip(RoundedCornerShape(14.dp)))
-                                Spacer(Modifier.width(12.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text("오늘의 추천 · ${pick.reason}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                                    Text(pick.track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-                                    Text(pick.track.artist, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                Icon(Icons.Default.PlayArrow, "재생")
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ----- 최근 들은 곡 -----
-            if (state.recent.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "__recent__") {
-                    val rs = rememberLazyListState()
-                    Column {
-                        Text("최근 들은 곡", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 8.dp))
-                        LazyRow(state = rs, modifier = Modifier.wheelToHorizontal(rs, scope), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            items(state.recent, key = { it.track.url }) { r ->
-                                GlassSurface(
-                                    modifier = Modifier.width(140.dp).animateItem(),
-                                    shape = RoundedCornerShape(18.dp), strong = true,
-                                    onClick = { state.playTrackIn(r.pid, r.track.url) }
-                                ) {
-                                    Column(Modifier.padding(8.dp)) {
-                                        Thumb(r.track.thumb, Modifier.fillMaxWidth().height(78.dp).clip(RoundedCornerShape(12.dp)))
-                                        Spacer(Modifier.height(6.dp))
-                                        Text(r.track.title, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ----- 내 플레이리스트 머리 -----
-            item(span = { GridItemSpan(maxLineSpan) }, key = "__plhead__") {
-                Column {
+            // ----- 머리글: 인사 + 큰 제목 + 한 줄 메시지 -----
+            item(span = { GridItemSpan(maxLineSpan) }, key = "__header__") {
+                Column(Modifier.riseIn(a, 0)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("내 플레이리스트", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.width(6.dp))
                         Text(
-                            "${state.playlists.count { it.id != FAV_ID }}개",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            if (state.online) greeting() else "오프라인 · 저장한 곡만 재생돼요",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (state.online) muted else MaterialTheme.colorScheme.error,
                             modifier = Modifier.weight(1f)
                         )
-                        GlassChip("섞어 듣기", icon = Icons.Default.Shuffle, onClick = onMix)
-                        Spacer(Modifier.width(8.dp))
-                        GlassChip("플레이리스트 추가", icon = Icons.Default.Add, selected = true, onClick = onAdd)
+                        IconButton(onClick = { state.panel = Panel.SEARCH }) { Icon(Icons.Default.Search, "유튜브에서 찾기 (Ctrl+F)") }
+                        Box {
+                            IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreHoriz, "더보기") }
+                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                DropdownMenuItem(text = { Text("새 플레이리스트") }, leadingIcon = { Icon(Icons.Default.Add, null) }, onClick = { menu = false; onAdd() })
+                                DropdownMenuItem(text = { Text("모두 섞어 듣기") }, leadingIcon = { Icon(Icons.Default.Shuffle, null) }, onClick = { menu = false; onMix() })
+                                DropdownMenuItem(text = { Text("청취 통계") }, leadingIcon = { Icon(Icons.Default.BarChart, null) }, onClick = { menu = false; state.panel = Panel.STATS })
+                                DropdownMenuItem(text = { Text("설정") }, leadingIcon = { Icon(Icons.Default.Settings, null) }, onClick = { menu = false; state.panel = Panel.SETTINGS })
+                            }
+                        }
                     }
+                    Text("Playlist", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.ExtraBold)
+                    Spacer(Modifier.height(4.dp))
+                    QuietMessage(muted)
                     if (tags.isNotEmpty()) {
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(16.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            GlassChip("전체", selected = tagFilter.isEmpty()) { tagFilter = "" }
-                            tags.forEach { t -> GlassChip("#$t", selected = tagFilter == t) { tagFilter = if (tagFilter == t) "" else t } }
+                            TagPill("전체", tagFilter.isEmpty()) { tagFilter = "" }
+                            tags.forEach { t -> TagPill("#$t", tagFilter == t) { tagFilter = if (tagFilter == t) "" else t } }
                         }
                     }
                 }
             }
 
-            // ----- 카드 -----
+            // ----- 플레이리스트: 커버 + 이름만 -----
             items(shown, key = { it.id }) { p ->
-                val name = if (p.id == FAV_ID) "좋아요" else p.name
                 androidx.compose.foundation.ContextMenuArea(items = { onPlaylistMenu(p.id) }) {
-                    GlassSurface(
-                        modifier = Modifier.fillMaxWidth().animateItem(),
-                        shape = RoundedCornerShape(26.dp), strong = true, pressScale = 0.95f,
-                        onClick = { state.openId = p.id }
-                    ) {
-                        Column(Modifier.padding(10.dp)) {
-                            PlaylistCover(p, Modifier.sharedEl("cover-${p.id}", s, a).fillMaxWidth().aspectRatio(1f))
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.sharedBox("title-${p.id}", s, a)
-                            )
-                            val prog = state.offlineProgress[p.id]
-                            Text(
-                                when {
-                                    prog != null -> "저장 중 ${prog.first}/${prog.second}"
-                                    p.tag.isNotBlank() -> "${p.tracks.size}곡 · #${p.tag}"
-                                    else -> "${p.tracks.size}곡"
-                                },
-                                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                    PlaylistTile(state, p, s, a, Modifier.animateItem()) { state.openId = p.id }
+                }
+            }
+
+            // ----- 새 플레이리스트 -----
+            item(key = "__add__") {
+                HoverPress(onClick = onAdd) { hovered ->
+                    Column {
+                        Box(
+                            Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(12.dp))
+                                .background(Color.White.copy(alpha = if (hovered) 0.10f else 0.06f))
+                                .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp)),
+                            contentAlignment = Alignment.Center
+                        ) { Icon(Icons.Default.Add, null, Modifier.size(40.dp), tint = muted) }
+                        Spacer(Modifier.height(10.dp))
+                        Text("새 플레이리스트", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = muted)
                     }
                 }
             }
 
-            if (!state.hasUserPlaylists) {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "__empty__") {
-                    Text(
-                        "플레이리스트가 없어요. '플레이리스트 추가'에 유튜브 링크를 넣거나, 설정 → 백업 → 가져오기로 폰의 목록을 불러오세요",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth().padding(24.dp)
-                    )
-                }
-            }
             if (state.loading) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "__loading__") {
                     Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -351,6 +290,159 @@ fun HomeScreen(
             }
             state.error?.let { msg ->
                 item(span = { GridItemSpan(maxLineSpan) }, key = "__err__") { ErrorCard(msg, state.retry, state::clearError) }
+            }
+
+            // ----- 비슷한 곡 -----
+            if (state.recs.isNotEmpty() || state.recsLoading) {
+                item(span = { GridItemSpan(maxLineSpan) }, key = "__recs__") {
+                    RecsRow(state, trackMenu, Modifier.riseIn(a, 120, 3))
+                }
+            }
+        }
+        VerticalScrollbar(rememberScrollbarAdapter(gridState), Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(vertical = 12.dp))
+    }
+}
+
+/** 마우스를 올리면 살짝 커지고, 누르면 살짝 작아지는 공통 틀 */
+@Composable
+fun HoverPress(modifier: Modifier = Modifier, onClick: () -> Unit, content: @Composable (hovered: Boolean) -> Unit) {
+    val src = remember { MutableInteractionSource() }
+    val hovered by src.collectIsHoveredAsState()
+    val pressed by src.collectIsPressedAsState()
+    val sc by animateFloatAsState(
+        when { pressed -> 0.96f; hovered -> 1.02f; else -> 1f },
+        spring(dampingRatio = 0.55f, stiffness = 500f), label = "hp"
+    )
+    Box(
+        modifier
+            .graphicsLayer { scaleX = sc; scaleY = sc }
+            .hoverable(src)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .clickable(interactionSource = src, indication = null, onClick = onClick)
+    ) { content(hovered) }
+}
+
+@Composable
+private fun PlaylistTile(state: AppState, p: Playlist, s: SharedTransitionScope?, a: AnimatedVisibilityScope?, modifier: Modifier, onClick: () -> Unit) {
+    val name = if (p.id == FAV_ID) "좋아요" else p.name
+    val prog = state.offlineProgress[p.id]
+    HoverPress(modifier, onClick = onClick) { hovered ->
+        Column {
+            Box {
+                PlaylistCover(
+                    p,
+                    Modifier.sharedEl("cover-${p.id}", s, a).fillMaxWidth().aspectRatio(1f)
+                        .shadow(if (hovered) 18.dp else 10.dp, RoundedCornerShape(12.dp), ambientColor = Color.Black, spotColor = Color.Black),
+                    12.dp
+                )
+                // 마우스를 올리면 바로 재생 버튼
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = hovered && p.tracks.isNotEmpty(),
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp),
+                    enter = fadeIn() + scaleIn(initialScale = 0.7f), exit = fadeOut()
+                ) {
+                    Box(
+                        Modifier.size(44.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.6f))
+                            .clickable { state.playAllIn(p.id) },
+                        contentAlignment = Alignment.Center
+                    ) { Icon(Icons.Default.PlayArrow, "바로 재생", tint = Color.White) }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Text(
+                name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.sharedBox("title-${p.id}", s, a)
+            )
+            Text(
+                when {
+                    prog != null -> "저장 중 ${prog.first}/${prog.second}"
+                    p.tag.isNotBlank() -> "${p.tracks.size}곡 · #${p.tag}"
+                    else -> "${p.tracks.size}곡"
+                },
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuietMessage(color: Color) {
+    var idx by remember { mutableIntStateOf(Random.nextInt(MESSAGES.size)) }
+    val next = { idx = (idx + 1 + Random.nextInt(MESSAGES.size - 1)) % MESSAGES.size }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(12_000)
+            next()
+        }
+    }
+    androidx.compose.animation.Crossfade(targetState = idx, animationSpec = tween(500), label = "quietMsg") { i ->
+        Text(
+            MESSAGES[i].replace("\n", " "),
+            style = MaterialTheme.typography.bodyLarge, color = color, maxLines = 1,
+            modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { next() }
+        )
+    }
+}
+
+@Composable
+private fun TagPill(label: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        label,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+        color = if (selected) Color.Black else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+        modifier = Modifier.clip(CircleShape)
+            .background(if (selected) Color.White else Color.White.copy(alpha = 0.08f))
+            .pointerHoverIcon(PointerIcon.Hand)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 7.dp)
+    )
+}
+
+/** 비슷한 곡: 누르면 그 곡으로 라디오, 오른쪽 클릭하면 메뉴 */
+@Composable
+private fun RecsRow(state: AppState, trackMenu: (Track, String, Int) -> List<ContextMenuItem>, modifier: Modifier) {
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+    val rs = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    Column(modifier.fillMaxWidth().padding(top = 10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("비슷한 곡", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                val cur = state.engine.current?.track
+                Text(
+                    if (cur != null) "‘${TitleClean.title(cur.title, cur.artist).take(30)}’ 와(과) 어울리는 곡" else "최근 들은 곡과 어울리는 곡",
+                    style = MaterialTheme.typography.bodySmall, color = muted, maxLines = 1
+                )
+            }
+            IconButton(onClick = { state.loadRecs(force = true) }) { Icon(Icons.Default.Refresh, "다시 추천", tint = muted) }
+        }
+        Spacer(Modifier.height(12.dp))
+        LazyRow(state = rs, modifier = Modifier.wheelToHorizontal(rs, scope), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            if (state.recs.isEmpty()) {
+                items(7) {
+                    Box(Modifier.width(170.dp).aspectRatio(1f).clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = 0.06f)))
+                }
+            } else {
+                items(state.recs, key = { it.url }) { t ->
+                    androidx.compose.foundation.ContextMenuArea(items = { trackMenu(t, SEARCH_PID, -1) }) {
+                        HoverPress(Modifier.width(170.dp).animateItem(), onClick = { state.startRadio(t) }) { hovered ->
+                            Column {
+                                Box {
+                                    Thumb(t.thumb, Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp)))
+                                    if (hovered) Box(
+                                        Modifier.align(Alignment.BottomEnd).padding(8.dp).size(38.dp).clip(CircleShape)
+                                            .background(Color.Black.copy(alpha = 0.6f)),
+                                        contentAlignment = Alignment.Center
+                                    ) { Icon(Icons.Default.Radio, "라디오 시작", Modifier.size(20.dp), tint = Color.White) }
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                Text(t.shownTitle, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(t.shownArtist, style = MaterialTheme.typography.bodySmall, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -384,175 +476,180 @@ fun PlaylistScreen(
     val total = remember(pl.tracks) { pl.tracks.sumOf { it.durationSec } }
     val prog = state.offlineProgress[pl.id]
     val cacheVer = state.cacheVersion
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
-        Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { state.openId = null }) { Icon(Icons.Default.ArrowBack, "뒤로 (Esc)") }
-            Spacer(Modifier.weight(1f))
+    val shown = remember(pl.tracks, query, sort) {
+        val base = pl.tracks.withIndex().filter {
+            query.isBlank() || it.value.title.contains(query, ignoreCase = true) || it.value.artist.contains(query, ignoreCase = true)
         }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            PlaylistCover(pl, Modifier.sharedEl("cover-${pl.id}", s, a).size(168.dp), 26.dp)
-            Spacer(Modifier.width(24.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    when {
-                        pl.id == FAV_ID -> "내가 좋아요한 곡"
-                        pl.url.isBlank() -> "직접 만든 플레이리스트"
-                        else -> "YouTube 플레이리스트"
-                    },
-                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.riseIn(a, 80)
-                )
-                Text(
-                    name, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.ExtraBold,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.sharedBox("title-${pl.id}", s, a)
-                )
-                Text(
-                    "${pl.tracks.size}곡 · 총 ${totalLabel(total)}" + if (pl.tag.isNotBlank()) " · #${pl.tag}" else "",
-                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.riseIn(a, 120)
-                )
-                Spacer(Modifier.height(14.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.riseIn(a, 140, 2)) {
-                    GlassSurface(
-                        modifier = Modifier.height(46.dp).widthIn(min = 140.dp), shape = RoundedCornerShape(23.dp),
-                        tint = MaterialTheme.colorScheme.primary, onClick = { state.playAllIn(pl.id) }
-                    ) {
-                        Row(Modifier.padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.PlayArrow, null)
-                            Spacer(Modifier.width(6.dp))
-                            Text("전체 재생", fontWeight = FontWeight.SemiBold)
+        when (sort) {
+            1 -> base.sortedBy { it.value.shownTitle.lowercase() }
+            2 -> base.sortedBy { it.value.durationSec }
+            3 -> base.reversed()
+            else -> base
+        }
+    }
+    val listState = rememberLazyListState()
+    LaunchedEffect(sort) { if (listState.firstVisibleItemIndex > 1) listState.scrollToItem(1) }
+    val curPos = if (state.playingPid == pl.id) shown.indexOfFirst { it.value.url == state.playingUrl } else -1
+
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 8.dp, bottom = 24.dp)
+        ) {
+            // ----- 머리: 뒤로 / 커버 + 이름 + 버튼 -----
+            item(key = "__head__") {
+                Column {
+                    IconButton(onClick = { state.openId = null }) { Icon(Icons.Default.ArrowBackIosNew, "뒤로 (Esc)", Modifier.size(20.dp)) }
+                    Spacer(Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        PlaylistCover(
+                            pl,
+                            Modifier.sharedEl("cover-${pl.id}", s, a).size(230.dp)
+                                .shadow(24.dp, RoundedCornerShape(14.dp), ambientColor = Color.Black, spotColor = Color.Black),
+                            14.dp
+                        )
+                        Spacer(Modifier.width(32.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                name, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.ExtraBold,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.sharedBox("title-${pl.id}", s, a)
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                buildString {
+                                    append(when { pl.id == FAV_ID -> "좋아요한 곡"; pl.url.isBlank() -> "내가 만든 목록"; else -> "YouTube" })
+                                    append(" · ${pl.tracks.size}곡")
+                                    if (total > 0) append(" · ${totalLabel(total)}")
+                                    if (pl.tag.isNotBlank()) append(" · #${pl.tag}")
+                                },
+                                style = MaterialTheme.typography.bodyMedium, color = muted, modifier = Modifier.riseIn(a, 80)
+                            )
+                            Spacer(Modifier.height(18.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.riseIn(a, 120, 2)) {
+                                if (pl.tracks.isNotEmpty()) {
+                                    PillButton(Icons.Default.PlayArrow, "재생") { state.playAllIn(pl.id) }
+                                    PillButton(Icons.Default.Shuffle, "셔플") { state.shuffleIn(pl.id) }
+                                }
+                                Box {
+                                    IconButton(onClick = { sortOpen = true }) { Icon(Icons.Default.Sort, "정렬", tint = muted) }
+                                    DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
+                                        SORTS.forEachIndexed { i, label ->
+                                            DropdownMenuItem(
+                                                text = { Text(label) },
+                                                trailingIcon = { if (sort == i) Icon(Icons.Default.Check, null) },
+                                                onClick = { sort = i; sortOpen = false }
+                                            )
+                                        }
+                                    }
+                                }
+                                Box {
+                                    IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreHoriz, "메뉴", tint = muted) }
+                                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                        playlistMenu().forEach { item ->
+                                            DropdownMenuItem(text = { Text(item.label) }, onClick = { menuOpen = false; item.onClick() })
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
-                    GlassSurface(
-                        modifier = Modifier.height(46.dp).widthIn(min = 140.dp), shape = RoundedCornerShape(23.dp),
-                        strong = true, onClick = { state.shuffleIn(pl.id) }
-                    ) {
-                        Row(Modifier.padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Shuffle, null, Modifier.size(20.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("셔플 재생", fontWeight = FontWeight.SemiBold)
+                    if (prog != null) {
+                        Row(Modifier.fillMaxWidth().padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            LinearProgressIndicator(progress = { if (prog.second > 0) prog.first / prog.second.toFloat() else 0f }, modifier = Modifier.weight(1f).height(3.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("저장 중 ${prog.first}/${prog.second}", style = MaterialTheme.typography.labelSmall, color = muted)
+                            TextButton(onClick = { state.cancelOffline(pl.id) }) { Text("멈추기") }
                         }
                     }
-                    Box {
-                        GlassSurface(modifier = Modifier.size(46.dp), shape = CircleShape, strong = true, onClick = { sortOpen = true }) {
-                            Icon(Icons.Default.Sort, "정렬")
-                        }
-                        DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
-                            SORTS.forEachIndexed { i, label ->
-                                DropdownMenuItem(
-                                    text = { Text(label) },
-                                    trailingIcon = { if (sort == i) Icon(Icons.Default.Check, null) },
-                                    onClick = { sort = i; sortOpen = false }
+                    state.error?.let { Spacer(Modifier.height(8.dp)); ErrorCard(it, state.retry, state::clearError) }
+                    Spacer(Modifier.height(22.dp))
+                    // ----- 찾기 + 현재 곡으로 -----
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            Modifier.widthIn(max = 360.dp).fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = 0.07f)).padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Search, null, Modifier.size(18.dp), tint = muted)
+                            Spacer(Modifier.width(8.dp))
+                            Box(Modifier.weight(1f).padding(vertical = 10.dp)) {
+                                if (query.isEmpty()) Text("이 목록에서 찾기", color = muted, style = MaterialTheme.typography.bodyMedium)
+                                androidx.compose.foundation.text.BasicTextField(
+                                    value = query, onValueChange = { query = it }, singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                                    cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.onSurface),
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                             }
+                            if (query.isNotEmpty()) Icon(Icons.Default.Close, "지우기", Modifier.size(18.dp).clickable { query = "" }, tint = muted)
                         }
-                    }
-                    Box {
-                        GlassSurface(modifier = Modifier.size(46.dp), shape = CircleShape, strong = true, onClick = { menuOpen = true }) {
-                            Icon(Icons.Default.MoreHoriz, "메뉴")
-                        }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            playlistMenu().forEach { item ->
-                                DropdownMenuItem(text = { Text(item.label) }, onClick = { menuOpen = false; item.onClick() })
+                        Spacer(Modifier.weight(1f))
+                        if (curPos >= 0) {
+                            TextButton(onClick = { scope.launch { listState.animateScrollToItem((curPos + 1 - 3).coerceAtLeast(0)) } }) {
+                                Icon(Icons.Default.MyLocation, null, Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("현재 곡")
                             }
                         }
                     }
+                    Spacer(Modifier.height(10.dp))
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+                    Spacer(Modifier.height(6.dp))
+                }
+            }
+
+            when {
+                pl.tracks.isEmpty() && state.loading -> item(key = "__skel__") { SkeletonList(Modifier.fillMaxWidth().height(400.dp)) }
+                pl.tracks.isEmpty() -> item(key = "__empty__") {
+                    Text(
+                        when {
+                            pl.id == FAV_ID -> "좋아요한 곡이 없어요. 곡에 마우스를 올려 ♥를 눌러보세요"
+                            pl.url.isBlank() -> "빈 플레이리스트예요. 다른 목록의 곡을 오른쪽 클릭해서 담아보세요"
+                            else -> "곡이 없어요. ⋯ 메뉴에서 새로고침을 눌러보세요"
+                        },
+                        color = muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(40.dp)
+                    )
+                }
+                else -> itemsIndexed(shown, key = { _, it -> it.index }) { n, (i, t) ->
+                    val isCurrent = state.playingPid == pl.id && t.url == state.playingUrl
+                    TrackRow(
+                        number = n + 1,
+                        t = t,
+                        selected = isCurrent,
+                        playing = isCurrent && state.engine.isPlaying,
+                        saved = remember(t.url, cacheVer) { AudioCache.isPinned(t.url) },
+                        favorite = state.isFavorite(t.url),
+                        isNew = t.url in state.newUrls,
+                        onClick = { state.playIn(pl.id, i) },
+                        onPlayNext = { state.playNext(t, pl.id) },
+                        onQueue = { state.addToQueue(t, pl.id) },
+                        onFav = { state.toggleFavorite(t) },
+                        menu = { trackMenu(t, pl.id, i) },
+                        modifier = Modifier.animateItem()
+                    )
                 }
             }
         }
+        VerticalScrollbar(rememberScrollbarAdapter(listState), Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(vertical = 12.dp))
+    }
+}
 
-        if (prog != null) {
-            Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                LinearProgressIndicator(progress = { if (prog.second > 0) prog.first / prog.second.toFloat() else 0f }, modifier = Modifier.weight(1f).height(4.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("오프라인 저장 ${prog.first}/${prog.second}", style = MaterialTheme.typography.labelSmall)
-                TextButton(onClick = { state.cancelOffline(pl.id) }) { Text("멈추기") }
-            }
-        }
-        state.error?.let { ErrorCard(it, state.retry, state::clearError) }
-
-        Spacer(Modifier.height(14.dp))
-        when {
-            pl.tracks.isEmpty() && state.loading -> SkeletonList(Modifier.weight(1f))
-            pl.tracks.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text(
-                    when {
-                        pl.id == FAV_ID -> "좋아요한 곡이 없어요. 곡에 마우스를 올려 ♥를 눌러보세요"
-                        pl.url.isBlank() -> "빈 플레이리스트예요. 다른 목록의 곡을 오른쪽 클릭해서 담아보세요"
-                        else -> "곡이 없어요. 메뉴에서 새로고침을 눌러보세요"
-                    },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center
-                )
-            }
-            else -> {
-                val shown = remember(pl.tracks, query, sort) {
-                    val base = pl.tracks.withIndex().filter {
-                        query.isBlank() || it.value.title.contains(query, ignoreCase = true) || it.value.artist.contains(query, ignoreCase = true)
-                    }
-                    when (sort) {
-                        1 -> base.sortedBy { it.value.title.lowercase() }
-                        2 -> base.sortedBy { it.value.durationSec }
-                        3 -> base.reversed()
-                        else -> base
-                    }
-                }
-                val listState = rememberLazyListState()
-                LaunchedEffect(sort) { listState.scrollToItem(0) }
-                val curPos = if (state.playingPid == pl.id) shown.indexOfFirst { it.value.url == state.playingUrl } else -1
-
-                GlassSurface(
-                    modifier = Modifier.weight(1f).fillMaxWidth().padding(bottom = 12.dp).riseIn(a, 160, 3),
-                    shape = RoundedCornerShape(26.dp), strong = true
-                ) {
-                    Column(Modifier.fillMaxSize()) {
-                        Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 10.dp, top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(Modifier.width(8.dp))
-                            TextField(
-                                value = query, onValueChange = { query = it },
-                                placeholder = { Text("이 목록에서 찾기") }, singleLine = true,
-                                colors = TextFieldDefaults.colors(
-                                    focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
-                                    focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent
-                                ),
-                                modifier = Modifier.weight(1f)
-                            )
-                            if (curPos >= 0) {
-                                GlassChip("현재 곡", icon = Icons.Default.MyLocation) {
-                                    scope.launch { listState.animateScrollToItem((curPos - 3).coerceAtLeast(0)) }
-                                }
-                            }
-                        }
-                        Box(Modifier.weight(1f).fillMaxWidth()) {
-                            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(end = 10.dp), contentPadding = PaddingValues(8.dp)) {
-                                itemsIndexed(shown, key = { _, it -> it.index }) { n, (i, t) ->
-                                    val isCurrent = state.playingPid == pl.id && t.url == state.playingUrl
-                                    TrackRow(
-                                        number = n + 1,
-                                        t = t,
-                                        selected = isCurrent,
-                                        playing = isCurrent && state.engine.isPlaying,
-                                        saved = remember(t.url, cacheVer) { AudioCache.isPinned(t.url) },
-                                        favorite = state.isFavorite(t.url),
-                                        isNew = t.url in state.newUrls,
-                                        onClick = { state.playIn(pl.id, i) },
-                                        onPlayNext = { state.playNext(t, pl.id) },
-                                        onQueue = { state.addToQueue(t, pl.id) },
-                                        onFav = { state.toggleFavorite(t) },
-                                        menu = { trackMenu(t, pl.id, i) },
-                                        modifier = Modifier.animateItem()
-                                    )
-                                }
-                            }
-                            VerticalScrollbar(
-                                rememberScrollbarAdapter(listState),
-                                Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(vertical = 12.dp)
-                            )
-                        }
-                    }
-                }
-            }
+/** 납작한 알약 버튼 (Apple Music의 재생/셔플) */
+@Composable
+fun PillButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    HoverPress(onClick = onClick) { hovered ->
+        Row(
+            Modifier.clip(RoundedCornerShape(10.dp))
+                .background(Color.White.copy(alpha = if (hovered) 0.16f else 0.10f))
+                .padding(horizontal = 26.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, null, Modifier.size(20.dp), tint = AlbumAccent.color)
+            Spacer(Modifier.width(6.dp))
+            Text(label, fontWeight = FontWeight.SemiBold, color = AlbumAccent.color)
         }
     }
 }
