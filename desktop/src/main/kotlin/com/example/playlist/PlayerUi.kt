@@ -349,9 +349,9 @@ fun PlayerOverlay(state: AppState, expand: Animatable<Float, AnimationVector1D>,
                                     Icon(if (e.repeatMode == 2) Icons.Default.RepeatOne else Icons.Default.Repeat, "반복 (R)", Modifier.size(22.dp), tint = if (e.repeatMode == 0) dim else accent)
                                 }
                             }
-                            Spacer(Modifier.height(8.dp))
-                            VolumeBar(state)
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(6.dp))
+                            AudioVisualizer(state)
+                            Spacer(Modifier.height(6.dp))
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 PlainControl(44.dp, { state.showLyrics = !state.showLyrics }) {
                                     Icon(Icons.Default.FormatQuote, "가사", Modifier.size(22.dp), tint = if (state.showLyrics) on else dim)
@@ -695,6 +695,43 @@ private fun UpNext(state: AppState) {
                 }
             }
             if (next != null) Icon(Icons.Default.SkipNext, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+
+/** 오디오 비주얼라이저: 주파수별 막대가 가운데서 위아래로 퍼져요 (낮은음 왼쪽, 높은음 오른쪽) */
+@Composable
+fun AudioVisualizer(state: AppState, modifier: Modifier = Modifier.fillMaxWidth().height(60.dp)) {
+    val e = state.engine
+    val n = Spectrum.BANDS
+    val clock = rememberFrameClock(true)
+    val target = remember { FloatArray(n) }
+    val shown = remember { FloatArray(n) }
+    val peak = remember { FloatArray(n) }
+    val accent by androidx.compose.animation.animateColorAsState(AlbumAccent.color, tween(600), label = "vizAccent")
+    val dimBase = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+    androidx.compose.foundation.Canvas(modifier) {
+        clock.value
+        if (e.isPlaying) Spectrum.current(target) else java.util.Arrays.fill(target, 0f)
+        val gap = size.width / n * 0.38f
+        val bw = (size.width - gap * (n - 1)) / n
+        val cy = size.height / 2f
+        val maxH = size.height / 2f
+        val r = CornerRadius(bw / 2f)
+        for (i in 0 until n) {
+            val t = target[i]
+            shown[i] = if (t > shown[i]) shown[i] + (t - shown[i]) * 0.55f else shown[i] * 0.88f + t * 0.12f
+            peak[i] = maxOf(peak[i] * 0.97f, shown[i])
+            val v = shown[i]
+            val h = (maxH * (0.06f + 0.94f * v)).coerceAtLeast(bw / 2f)
+            val x = i * (bw + gap)
+            drawRoundRect(dimBase, topLeft = Offset(x, cy - bw / 2f), size = Size(bw, bw), cornerRadius = r)
+            drawRoundRect(accent.copy(alpha = 0.35f + 0.65f * v), topLeft = Offset(x, cy - h), size = Size(bw, h * 2f), cornerRadius = r)
+            val ph = maxH * (0.06f + 0.94f * peak[i])
+            if (peak[i] > v + 0.04f) {
+                drawRoundRect(accent.copy(alpha = 0.35f), topLeft = Offset(x, cy - ph - bw / 2f), size = Size(bw, bw / 1.5f), cornerRadius = r)
+            }
         }
     }
 }

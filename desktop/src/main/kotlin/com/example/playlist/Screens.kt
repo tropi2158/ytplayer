@@ -428,7 +428,7 @@ private fun RecsRow(state: AppState, trackMenu: (Track, String, Int) -> List<Con
                     val pl = m.measure(c.copy(minWidth = c.maxWidth + extra * 2, maxWidth = c.maxWidth + extra * 2))
                     layout(c.maxWidth, pl.height) { pl.place(-extra, 0) }
                 }
-                .height(3 * 62.dp)
+                .height(186.dp)
                 .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Scroll) { ev ->
                     val d = ev.changes.firstOrNull()?.scrollDelta ?: return@onPointerEvent
                     scope.launch { gs.scrollBy((if (kotlin.math.abs(d.x) > kotlin.math.abs(d.y)) d.x else d.y) * 60f) }

@@ -515,6 +515,11 @@ class Engine(
             p.rate = speed.toDouble()
             p.volume = targetVolume().toDouble()
             applyEq(p)
+            // 비주얼라이저: 1초에 약 33번 주파수별 세기를 받아요
+            p.audioSpectrumNumBands = Spectrum.RAW
+            p.audioSpectrumInterval = 0.03
+            p.audioSpectrumThreshold = -80
+            p.setAudioSpectrumListener { _, _, mags, _ -> if (mp === p) Spectrum.update(mags) }
             p.currentTimeProperty().addListener { _, _, t -> rawPos = t.toMillis().toLong() }
             p.setOnReady {
                 val d = media.duration.toMillis()
