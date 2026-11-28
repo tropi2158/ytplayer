@@ -700,38 +700,61 @@ private fun UpNext(state: AppState) {
 }
 
 
-/** 오디오 비주얼라이저: 주파수별 막대가 가운데서 위아래로 퍼져요 (낮은음 왼쪽, 높은음 오른쪽) */
+/** 오디오 비주얼라이저: 소리에 맞춰 출렁이는 부드러운 파동 세 가닥 (낮은음 왼쪽, 높은음 오른쪽) */
 @Composable
-fun AudioVisualizer(state: AppState, modifier: Modifier = Modifier.fillMaxWidth().height(60.dp)) {
+fun AudioVisualizer(state: AppState, modifier: Modifier = Modifier.fillMaxWidth().height(64.dp)) {
     val e = state.engine
     val n = Spectrum.BANDS
     val clock = rememberFrameClock(true)
     val target = remember { FloatArray(n) }
     val shown = remember { FloatArray(n) }
-    val peak = remember { FloatArray(n) }
+    val smooth = remember { FloatArray(n) }
     val accent by androidx.compose.animation.animateColorAsState(AlbumAccent.color, tween(600), label = "vizAccent")
-    val dimBase = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
     androidx.compose.foundation.Canvas(modifier) {
         clock.value
         if (e.isPlaying) Spectrum.current(target) else java.util.Arrays.fill(target, 0f)
-        val gap = size.width / n * 0.38f
-        val bw = (size.width - gap * (n - 1)) / n
-        val cy = size.height / 2f
-        val maxH = size.height / 2f
-        val r = CornerRadius(bw / 2f)
+        // 막대 값을 부드럽게 따라가고, 옆 칸끼리 섞어 매끈한 곡선으로
         for (i in 0 until n) {
-            val t = target[i]
-            shown[i] = if (t > shown[i]) shown[i] + (t - shown[i]) * 0.55f else shown[i] * 0.88f + t * 0.12f
-            peak[i] = maxOf(peak[i] * 0.97f, shown[i])
-            val v = shown[i]
-            val h = (maxH * (0.06f + 0.94f * v)).coerceAtLeast(bw / 2f)
-            val x = i * (bw + gap)
-            drawRoundRect(dimBase, topLeft = Offset(x, cy - bw / 2f), size = Size(bw, bw), cornerRadius = r)
-            drawRoundRect(accent.copy(alpha = 0.35f + 0.65f * v), topLeft = Offset(x, cy - h), size = Size(bw, h * 2f), cornerRadius = r)
-            val ph = maxH * (0.06f + 0.94f * peak[i])
-            if (peak[i] > v + 0.04f) {
-                drawRoundRect(accent.copy(alpha = 0.35f), topLeft = Offset(x, cy - ph - bw / 2f), size = Size(bw, bw / 1.5f), cornerRadius = r)
+            val tv = target[i]
+            shown[i] = if (tv > shown[i]) shown[i] + (tv - shown[i]) * 0.35f else shown[i] * 0.92f + tv * 0.08f
+        }
+        for (i in 0 until n) {
+            val a = shown[(i - 1).coerceAtLeast(0)]
+            val b = shown[(i + 1).coerceAtMost(n - 1)]
+            smooth[i] = (a + shown[i] * 2f + b) / 4f
+        }
+        val w = size.width
+        val cy = size.height / 2f
+        val maxH = size.height / 2f * 0.92f
+        val time = System.nanoTime() / 1_000_000_000.0
+        val step = 3f
+        // 세 가닥: 굵고 진한 선 + 옅은 선 두 개가 서로 다른 박자로 흘러요
+        val layers = arrayOf(
+            floatArrayOf(1.00f, 2.2f, 1.6f, 1.0f, 2.2f),
+            floatArrayOf(0.70f, 3.1f, -2.1f, 0.45f, 1.5f),
+            floatArrayOf(0.45f, 1.6f, 2.7f, 0.25f, 1.2f)
+        )
+        for (L in layers) {
+            val (scale, freq, speed, alpha, strokeDp) = L.toList()
+            val path = androidx.compose.ui.graphics.Path()
+            var x = 0f
+            while (x <= w) {
+                val u = x / w
+                // 양 끝은 0으로 모이고 가운데가 가장 크게 (파동이 화면 안에서 숨 쉬듯)
+                val env = kotlin.math.sin(Math.PI * u).toFloat().let { it * it }
+                val fi = u * (n - 1)
+                val i0 = fi.toInt().coerceIn(0, n - 1)
+                val i1 = (i0 + 1).coerceAtMost(n - 1)
+                val lv = smooth[i0] + (smooth[i1] - smooth[i0]) * (fi - i0)
+                val amp = maxH * (0.03f + 0.97f * lv) * env * scale
+                val y = cy + amp * kotlin.math.sin(u * freq * 2.0 * Math.PI + time * speed).toFloat()
+                if (x == 0f) path.moveTo(x, y) else path.lineTo(x, y)
+                x += step
             }
+            drawPath(
+                path, accent.copy(alpha = alpha),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeDp.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            )
         }
     }
 }
