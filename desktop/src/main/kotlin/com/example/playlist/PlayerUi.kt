@@ -140,6 +140,12 @@ fun SeekBar(state: AppState, compact: Boolean = false) {
 fun MoreToolsMenu(state: AppState, expanded: Boolean, onDismiss: () -> Unit) {
     val e = state.engine
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        DropdownMenuItem(
+            text = { Text("이어 듣기 링크 복사 (폰에서 이어 듣기)") },
+            leadingIcon = { Icon(Icons.Default.PhoneAndroid, null) },
+            onClick = { onDismiss(); state.copyHandoff() }
+        )
+        HorizontalDivider(Modifier.padding(vertical = 4.dp))
         Text("재생 속도", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
         Row(Modifier.padding(horizontal = 8.dp)) {
             listOf(0.75f, 1f, 1.25f, 1.5f, 2f).forEach { sp ->

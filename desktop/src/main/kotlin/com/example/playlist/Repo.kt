@@ -86,6 +86,18 @@ object YtRepo {
             }
     }
 
+    /** 영상 하나의 곡 정보 (이어 듣기 링크 열기) */
+    fun trackOf(videoUrl: String): Track {
+        val info = StreamInfo.getInfo(ServiceList.YouTube, videoUrl)
+        return Track(
+            url = info.url,
+            title = info.name,
+            artist = info.uploaderName ?: "",
+            thumb = info.thumbnails.lastOrNull()?.url,
+            durationSec = info.duration
+        )
+    }
+
     /** 이 곡과 비슷한 곡 (유튜브 추천) */
     fun related(videoUrl: String): List<Track> {
         val info = StreamInfo.getInfo(ServiceList.YouTube, videoUrl)
@@ -112,4 +124,17 @@ object YtRepo {
             ?: throw IOException("재생할 수 있는 m4a 오디오가 없어요")
         return best.content
     }
+}
+
+
+/** 링크의 시작 시각 (t=90, t=1m30s, t=90s) → 밀리초 */
+fun startTimeOf(url: String): Long {
+    val t = Regex("""[?&#]t=([0-9hms]+)""").find(url)?.groupValues?.get(1) ?: return 0L
+    if (t.all { it.isDigit() }) return t.toLong() * 1000
+    var sec = 0L
+    Regex("""(\d+)([hms])""").findAll(t).forEach { m ->
+        val n = m.groupValues[1].toLong()
+        sec += when (m.groupValues[2]) { "h" -> n * 3600; "m" -> n * 60; else -> n }
+    }
+    return sec * 1000
 }

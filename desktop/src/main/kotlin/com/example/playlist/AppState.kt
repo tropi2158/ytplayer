@@ -333,6 +333,8 @@ class AppState {
         val found = extractUrl(raw) ?: raw.trim()
         if (found.isEmpty()) return
         val lid = listIdOf(found)
+        // 영상 하나의 링크면 (폰에서 넘긴 '이어 듣기' 링크 포함) 그 위치부터 바로 재생
+        if (lid == null && videoIdOf(found) != null) { openVideo(found); return }
         val u = if (lid != null) "https://www.youtube.com/playlist?list=$lid" else found
         playlists.firstOrNull { it.url.isNotBlank() && (it.url == u || (lid != null && listIdOf(it.url) == lid)) }?.let {
             openId = it.id
@@ -696,6 +698,7 @@ class AppState {
                 val incoming = Store.parseExport(text)
                 var list = playlists
                 var added = 0
+                var merged = 0
                 for (p in incoming) {
                     if (p.id == FAV_ID) {
                         val fav = list.first { it.id == FAV_ID }
@@ -703,13 +706,30 @@ class AppState {
                         list = list.map { if (it.id == FAV_ID) it.copy(tracks = merged) else it }
                         continue
                     }
+                    // 같은 목록(같은 유튜브 목록, 또는 같은 이름의 직접 만든 목록)이 있으면 합치기
                     val lid = listIdOf(p.url)
-                    if (lid != null && list.any { listIdOf(it.url) == lid }) continue
+                    val same = list.firstOrNull {
+                        it.id != FAV_ID && ((lid != null && listIdOf(it.url) == lid) || (p.url.isBlank() && it.url.isBlank() && it.name == p.name))
+                    }
+                    if (same != null) {
+                        val have = same.tracks.map { it.url }.toSet()
+                        val extra = p.tracks.filter { it.url !in have && it.url !in same.hidden }
+                        list = list.map {
+                            if (it.id != same.id) it
+                            else it.copy(
+                                tracks = it.tracks + extra,
+                                added = (it.added + p.added).distinctBy { a -> a.url },
+                                hidden = it.hidden + p.hidden
+                            )
+                        }
+                        if (extra.isNotEmpty()) merged++
+                        continue
+                    }
                     list = list + p.copy(id = Store.newId())
                     added++
                 }
                 updatePlaylists(list)
-                toast("플레이리스트 ${added}개를 가져왔어요")
+                toast("새 플레이리스트 ${added}개, 곡이 더해진 목록 ${merged}개")
             } catch (e: Exception) {
                 toast("백업 파일을 읽지 못했어요")
             }
@@ -865,6 +885,34 @@ class AppState {
 
     private var radioMode = false
     private var extending = false
+
+    /** 영상 링크를 그 위치(t=)부터 재생 */
+    fun openVideo(link: String) {
+        val id = videoIdOf(link) ?: return
+        val startMs = startTimeOf(link)
+        toast("링크의 곡을 불러오는 중…")
+        scope.launch {
+            val t = withContext(Dispatchers.IO) { runCatching { YtRepo.trackOf("https://www.youtube.com/watch?v=$id") }.getOrNull() }
+            if (t == null) { toast("영상을 불러오지 못했어요"); return@launch }
+            radioMode = false
+            engine.setQueue(listOf(QItem(SEARCH_PID, t)), 0, startMs)
+            if (startMs > 0) toast("${fmtTime(startMs)}부터 이어서 들어요")
+        }
+    }
+
+    /** 지금 곡을 지금 위치부터 여는 링크 (폰에서 이어 듣기) */
+    fun handoffLink(): String? {
+        val id = videoIdOf(engine.current?.track?.url ?: return null) ?: return null
+        return "https://www.youtube.com/watch?v=$id&t=${engine.livePosition() / 1000}s"
+    }
+
+    fun copyHandoff() {
+        val l = handoffLink() ?: run { toast("재생 중인 곡이 없어요"); return }
+        runCatching {
+            java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection(l), null)
+        }
+        toast("이어 듣기 링크를 복사했어요. 폰의 도구 모음 → PC와 맞추기 → '붙여 넣어 열기'")
+    }
 
     fun startRadio(t: Track) {
         radioMode = true

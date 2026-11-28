@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "com.example.playlist"
-version = "1.1.2"
+version = "1.2.0"
 
 dependencies {
     implementation(compose.desktop.currentOs)
@@ -42,7 +42,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Exe, TargetFormat.Msi)
             packageName = "Playlist"
-            packageVersion = "1.1.2"
+            packageVersion = "1.2.0"
             description = "YouTube playlist music player"
             vendor = "tropicalgd2158"
             includeAllModules = true
